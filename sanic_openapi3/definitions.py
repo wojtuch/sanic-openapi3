@@ -15,7 +15,7 @@ class Definition:
         return self.__fields
 
     def guard(self, fields: Dict[str, Any])-> Dict[str, Any]:
-        properties = props(self).keys()
+        properties = Factory.props(self).keys()
 
         return {x: v for x, v in fields.items() if x in properties}
 
@@ -36,6 +36,14 @@ class Schema(Definition):
     oneOf: List[Definition]
     anyOf: List[Definition]
     allOf: List[Definition]
+
+
+class Reference(Schema):
+    def __init__(self, value):
+        super().__init__(**{'$ref': value})
+
+    def guard(self, fields: Dict[str, Any]):
+        return fields
 
 
 class Boolean(Schema):
@@ -117,19 +125,6 @@ class Array(Schema):
         super().__init__(type="array", items=items, **kwargs)
 
 
-def serialize(value) -> Any:
-    if isinstance(value, Definition):
-        return value.serialize()
-
-    if isinstance(value, dict):
-        return {k: serialize(v) for k, v in value.items()}
-
-    if isinstance(value, list):
-        return [serialize(v) for v in value]
-
-    return value
-
-
 class Contact(Definition):
     name: str
     url: str
@@ -192,11 +187,11 @@ class RequestBody(Definition):
 
 
 class ExternalDocumentation(Definition):
-    name: str
     url: str
+    description: str
 
-    def __init__(self, url: str, **kwargs):
-        super().__init__(url=url, **kwargs)
+    def __init__(self, url: str, description=None):
+        super().__init__(url=url, description=description)
 
 
 class Parameter(Definition):
@@ -247,6 +242,27 @@ class PathItem(Definition):
     trace: Operation
 
 
+class SecurityScheme(Definition):
+    type: str
+    description: str
+    scheme: str
+    bearerFormat: str
+    name: str
+    location: str
+    openIdConnectUrl: str
+
+    def __init__(self, type: str, **kwargs):
+        super().__init__(type=type, **kwargs)
+
+    @property
+    def fields(self):
+        values = super().fields
+
+        values['in'] = values.pop('location')
+
+        return values
+
+
 class Components(Definition):
     schemas: Dict[str, Schema]
     responses: Dict[str, Response]
@@ -274,7 +290,7 @@ class OpenAPI(Definition):
     servers: []  # TODO
     paths: Dict[str, PathItem]
     components: Components
-    security: Dict[str, Any]
+    security: Dict[str, SecurityScheme]
     tags: List[Tag]
     externalDocs: ExternalDocumentation
 
@@ -282,77 +298,111 @@ class OpenAPI(Definition):
         super().__init__(openapi="3.0.0", info=info, paths=paths, **kwargs)
 
 
-def props(value: Any) -> Dict[str, Any]:
-    fields = {x: v for x, v in value.__dict__.items() if not x.startswith('_')}
+class Factory:
+    @staticmethod
+    def make(value: Any) -> Schema:
+        if isinstance(value, Schema):
+            return value
 
-    return {**get_type_hints(value.__class__), **fields}
+        if value == bool:
+            return Boolean()
+        elif value == int:
+            return Integer()
+        elif value == float:
+            return Float()
+        elif value == str:
+            return String()
+        elif value == bytes:
+            return Byte()
+        elif value == bytearray:
+            return Binary()
+        elif value == date:
+            return Date()
+        elif value == time:
+            return Time()
+        elif value == datetime:
+            return DateTime()
 
+        _type = type(value)
 
-def scheme(value: Any) -> Schema:
-    def __recur(fields: Dict):
-        return {k: scheme(v) for k, v in fields.items()}
+        if _type == bool:
+            return Boolean(default=value)
+        elif _type == int:
+            return Integer(default=value)
+        elif _type == float:
+            return Float(default=value)
+        elif _type == str:
+            return String(default=value)
+        elif _type == bytes:
+            return Byte(default=value)
+        elif _type == bytearray:
+            return Binary(default=value)
+        elif _type == date:
+            return Date()
+        elif _type == time:
+            return Time()
+        elif _type == datetime:
+            return DateTime()
+        elif _type == list:
+            if len(value) == 0:
+                schema = Schema(nullable=True)
+            elif len(value) == 1:
+                schema = Factory.make(value[0])
+            else:
+                schema = Schema(oneOf=[Factory.make(x) for x in value])
 
-    if isinstance(value, Schema):
-        return value
-
-    if value == bool:
-        return Boolean()
-    elif value == int:
-        return Integer()
-    elif value == float:
-        return Float()
-    elif value == str:
-        return String()
-    elif value == bytes:
-        return Byte()
-    elif value == bytearray:
-        return Binary()
-    elif value == date:
-        return Date()
-    elif value == time:
-        return Time()
-    elif value == datetime:
-        return DateTime()
-
-    _type = type(value)
-
-    if _type == bool:
-        return Boolean(default=value)
-    elif _type == int:
-        return Integer(default=value)
-    elif _type == float:
-        return Float(default=value)
-    elif _type == str:
-        return String(default=value)
-    elif _type == bytes:
-        return Byte(default=value)
-    elif _type == bytearray:
-        return Binary(default=value)
-    elif _type == date:
-        return Date()
-    elif _type == time:
-        return Time()
-    elif _type == datetime:
-        return DateTime()
-    elif _type == list:
-        if len(value) == 0:
-            schema = Schema(nullable=True)
-        elif len(value) == 1:
-            schema = scheme(value[0])
+            return Array(schema)
+        elif _type == dict:
+            return Object(Factory._recur(value))
         else:
-            schema = Schema(oneOf=[scheme(x) for x in value])
+            return Object(Factory._recur(Factory.props(value)))
 
-        return Array(schema)
-    elif _type == dict:
-        return Object(__recur(value))
-    else:
-        return Object(__recur(props(value)))
+    @staticmethod
+    def media(value: Any) -> Dict[str, MediaType]:
+        media_types = value
+
+        if value is not dict:
+            media_types = {'*/*': value or {}}
+
+        return {x: MediaType(Factory.make(v)) for x, v in media_types.items()}
+
+    @staticmethod
+    def body(content: Any, **kwargs):
+        return RequestBody(Factory.media(content), **kwargs)
+
+    @staticmethod
+    def parameter(name: str, schema: Any, location: str, **kwargs):
+        if location == 'path':
+            kwargs['required'] = True
+
+        return Parameter(name, Factory.make(schema), location, **kwargs)
+
+    @staticmethod
+    def response(content: Any, description: str = None, **kwargs):
+        if not description:
+            description = 'Default Response'
+
+        return Response(Factory.media(content), description=description, **kwargs)
+
+    @staticmethod
+    def _recur(fields: Dict):
+        return {k: Factory.make(v) for k, v in fields.items()}
+
+    @staticmethod
+    def props(value: Any) -> Dict[str, Any]:
+        fields = {x: v for x, v in value.__dict__.items() if not x.startswith('_')}
+
+        return {**get_type_hints(value.__class__), **fields}
 
 
-def media(value: Any) -> Dict[str, MediaType]:
-    media_types = value
+def serialize(value) -> Any:
+    if isinstance(value, Definition):
+        return value.serialize()
 
-    if value is not dict:
-        media_types = {'*/*': value or {}}
+    if isinstance(value, dict):
+        return {k: serialize(v) for k, v in value.items()}
 
-    return {x: MediaType(scheme(v)) for x, v in media_types.items()}
+    if isinstance(value, list):
+        return [serialize(v) for v in value]
+
+    return value

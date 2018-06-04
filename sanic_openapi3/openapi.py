@@ -16,22 +16,34 @@ class OperationBuilder:
     externalDocs: ExternalDocumentation
     parameters: List[Parameter]
     responses: Dict[str, Response]
-    security: Dict[str, List[str]]
+    security: List[Any]
     callbacks: List[str]  # TODO
     deprecated: bool = False
 
     def __init__(self):
-        self.responses = {}
-        self.parameters = []
         self.tags = []
+        self.parameters = []
+        self.security = []
+        self.responses = {}
 
 
 class SpecificationBuilder:
     operations: Dict[Any, OperationBuilder]
-    schemes: Dict[Any, Definition]
+    schemas: Dict[str, Definition]
+    security: Dict[str, SecurityScheme]
 
     def __init__(self):
         self.operations = defaultdict(OperationBuilder)
+        self.schemas = {}
+        self.security = {}
+
+    def maybe_ref(self, content: Any):
+        _type = type(content)
+
+        if _type == type and content.__name__ in self.schemas.keys():
+            return Reference("#/components/schemas/%s" % content.__name__)
+
+        return content
 
     def build(self, app: Sanic) -> OpenAPI:
         info = self.build_info(app)
@@ -49,10 +61,10 @@ class SpecificationBuilder:
                 if _route.handler not in self.operations:
                     continue
 
-                operation = self.operations.get(_route.handler)
+                _operation = self.operations.get(_route.handler)
 
-                if not operation.tags:
-                    operation.tags.append(_blueprint.name)
+                if not _operation.tags:
+                    _operation.tags.append(_blueprint.name)
 
         # --------------------------------------------------------------- #
         # Operations
@@ -78,36 +90,31 @@ class SpecificationBuilder:
                 if _handler not in self.operations:
                     continue
 
-                operation = self.operations[_handler]
+                _operation = self.operations[_handler]
 
-                if not hasattr(operation, 'operationId'):
-                    operation.operationId = '%s_%s' % (_method.lower(), _route.name)
+                if not hasattr(_operation, 'operationId'):
+                    _operation.operationId = '%s_%s' % (_method.lower(), _route.name)
 
                 for _parameter in _route.parameters:
-                    operation.parameters.append(Parameter(
-                        _parameter.name, scheme(_parameter.cast), 'path', required=True
-                    ))
+                    _operation.parameters.append(Factory.parameter(_parameter.name, _parameter.cast, 'path'))
 
-                paths[uri][_method] = operation.__dict__
+                paths[uri][_method] = _operation.__dict__
 
         paths = {k: PathItem(**{k1.lower(): Operation(**v1) for k1, v1 in v.items()}) for k, v in paths.items()}
 
         # --------------------------------------------------------------- #
         # Tags
         # --------------------------------------------------------------- #
-        for operation in self.operations.values():
-            for _tag in operation.tags:
+        for _operation in self.operations.values():
+            for _tag in _operation.tags:
                 tags[_tag] = True
 
         # --------------------------------------------------------------- #
         # Definitions
         # --------------------------------------------------------------- #
+        components = Components(schemas=self.schemas, securitySchemes=self.security)
 
-        # for key, definitions in components.items():
-        #     for cls, definition in definitions.items():
-        #         _spec['components'][key][cls] = definition
-
-        return OpenAPI(info, paths, tags=[{"name": name} for name in tags.keys()])
+        return OpenAPI(info, paths, tags=[{"name": name} for name in tags.keys()], components=components)
 
     @staticmethod
     def build_info(app: Sanic) -> Info:
@@ -131,6 +138,13 @@ class SpecificationBuilder:
 spec = SpecificationBuilder()
 
 
+def operation(id: str):
+    def inner(func):
+        spec.operations[func].operationId = id
+        return func
+    return inner
+
+
 def summary(text: str):
     def inner(func):
         spec.operations[func].summary = text
@@ -141,6 +155,13 @@ def summary(text: str):
 def description(text: str):
     def inner(func):
         spec.operations[func].description = text
+        return func
+    return inner
+
+
+def documentation(url: str, description: str = None):
+    def inner(func):
+        spec.operations[func].externalDocs = ExternalDocumentation(url, description)
         return func
     return inner
 
@@ -162,24 +183,35 @@ def deprecated():
 
 def body(content: Any, **kwargs):
     def inner(func):
-        spec.operations[func].requestBody = RequestBody(media(content), **kwargs)
+        spec.operations[func].requestBody = Factory.body(spec.maybe_ref(content), **kwargs)
         return func
     return inner
 
 
 def parameter(name: str, schema: Any, location: str = 'query', **kwargs):
     def inner(func):
-        param = Parameter(name, scheme(schema), location, **kwargs)
-
+        param = Factory.parameter(name, spec.maybe_ref(schema), location, **kwargs)
         spec.operations[func].parameters.append(param)
         return func
     return inner
 
 
-def response(status, content: Any=None, desc: str=None, **kwargs):
+def response(status, content: Any=None, description: str = None, **kwargs):
     def inner(func):
-        _desc = desc or 'Response %s' % status
+        spec.operations[func].responses[status] = Factory.response(spec.maybe_ref(content), description, **kwargs)
+        return func
+    return inner
 
-        spec.operations[func].responses[status] = Response(media(content), description=_desc, **kwargs)
+
+def secured(*args, **kwargs):
+    def inner(func):
+        items = {**{k: [] for k in args}, **kwargs}
+        gates = {}
+
+        for name, params in items.items():
+            gate = name.__name__ if isinstance(name, type) else name
+            gates[gate] = params
+
+        spec.operations[func].security.append(gates)
         return func
     return inner
