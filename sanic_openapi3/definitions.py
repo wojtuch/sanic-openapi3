@@ -385,6 +385,12 @@ class Factory:
         return Response(Factory.media(content), description=description, **kwargs)
 
     @staticmethod
+    def security(_type: str, cls: type, **kwargs):
+        params = cls.__dict__ if hasattr(cls, '__dict__') else {}
+
+        return SecurityScheme(_type, **params, **kwargs)
+
+    @staticmethod
     def _recur(fields: Dict):
         return {k: Factory.make(v) for k, v in fields.items()}
 
