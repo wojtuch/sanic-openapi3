@@ -2,6 +2,38 @@ from collections import defaultdict
 from sanic_openapi3.definitions import *
 
 
+class ComponentsBuilder:
+    _schemas: Dict[str, Schema]
+    _security: Dict[str, SecurityScheme]
+
+    def __init__(self):
+        self._schemas = {}
+        self._security = {}
+
+    def maybe_ref(self, content: Any, section: str = 'schema'):
+        if type(content) != type:
+            return content
+
+        if section == 'schema' and content.__name__ in self._schemas.keys():
+            return Reference("#/components/schemas/%s" % content.__name__)
+
+        return content
+
+    def scheme(self, name: str, value: Schema):
+        self._schemas[name] = value
+
+    def security(self, name: str, value: SecurityScheme):
+        self._security[name] = value
+
+    def build(self):
+        return Components(schemas=self._schemas, securitySchemes=self._security)
+
+
+class OperationsBuilder(defaultdict):
+    def __init__(self):
+        super().__init__(OperationBuilder)
+
+
 class OperationBuilder:
     summary: str
     description: str
@@ -74,20 +106,12 @@ class SpecificationBuilder:
     _license: License
     _paths: Dict[str, Dict[str, OperationBuilder]]
     _tags: Dict[str, Tag]
-    _schemas: Dict[str, Schema]
-    _security: Dict[str, SecurityScheme]
+    _components: ComponentsBuilder
 
-    def __init__(self):
+    def __init__(self, components: ComponentsBuilder):
+        self._components = components
         self._paths = defaultdict(dict)
         self._tags = {}
-        self._schemas = {}
-        self._security = {}
-
-    def maybe_ref(self, content: Any):
-        if type(content) == type and content.__name__ in self._schemas.keys():
-            return Reference("#/components/schemas/%s" % content.__name__)
-
-        return content
 
     def url(self, value: str):
         self._url = value
@@ -101,17 +125,11 @@ class SpecificationBuilder:
     def tag(self, name: str, **kwargs):
         self._tags[name] = Tag(name, **kwargs)
 
-    def contact(self, name: str = None, url: str = None, email: str = None ):
+    def contact(self, name: str = None, url: str = None, email: str = None):
         self._contact = Contact(name=name, url=url, email=email)
 
-    def license(self, name: str = None, url: str = None ):
+    def license(self, name: str = None, url: str = None):
         self._license = License(name, url=url)
-
-    def component(self, section: str, name: str, value: Schema):
-        if section == 'schemas':
-            self._schemas[name] = value
-        elif section == 'security' and isinstance(value, SecurityScheme):
-            self._security[name] = value
 
     def operation(self, path: str, method: str, operation: OperationBuilder):
         for _tag in operation.tags:
@@ -126,9 +144,8 @@ class SpecificationBuilder:
         info = self._build_info()
         paths = self._build_paths()
         tags = self._build_tags()
-        components = self._build_components()
 
-        return OpenAPI(info, paths, tags=tags, components=components)
+        return OpenAPI(info, paths, tags=tags, components=self._components.build())
 
     def _build_info(self) -> Info:
         kwargs = {
@@ -141,7 +158,7 @@ class SpecificationBuilder:
         return Info(self._title, self._version, **kwargs)
 
     def _build_tags(self):
-        return self._tags.values()
+        return [self._tags[k] for k in self._tags]
 
     def _build_paths(self) -> Dict:
         paths = {}
@@ -150,6 +167,3 @@ class SpecificationBuilder:
             paths[path] = PathItem(**{k: v.build() for k, v in operations.items()})
 
         return paths
-
-    def _build_components(self) -> Components:
-        return Components(schemas=self._schemas, securitySchemes=self._security)

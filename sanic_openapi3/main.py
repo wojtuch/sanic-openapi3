@@ -5,11 +5,12 @@ from sanic.blueprints import Blueprint
 from sanic.response import json
 from sanic.views import CompositionView
 
-from sanic_openapi3.builders import OperationBuilder, SpecificationBuilder
+from sanic_openapi3.builders import ComponentsBuilder, OperationsBuilder, SpecificationBuilder
 
 blueprint = Blueprint('openapi3')
-operations = defaultdict(OperationBuilder)
-specification = SpecificationBuilder()
+components = ComponentsBuilder()
+operations = OperationsBuilder()
+specification = SpecificationBuilder(components)
 
 
 @blueprint.listener('before_server_start')

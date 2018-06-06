@@ -1,5 +1,5 @@
 from typing import Any
-from sanic_openapi3.main import operations
+from sanic_openapi3.main import operations, components
 
 
 def operation(name: str):
@@ -46,21 +46,21 @@ def deprecated():
 
 def body(content: Any, **kwargs):
     def inner(func):
-        operations[func].body(content, **kwargs)
+        operations[func].body(components.maybe_ref(content), **kwargs)
         return func
     return inner
 
 
 def parameter(name: str, schema: Any, location: str = 'query', **kwargs):
     def inner(func):
-        operations[func].parameter(name, schema, location, **kwargs)
+        operations[func].parameter(name, components.maybe_ref(schema), location, **kwargs)
         return func
     return inner
 
 
 def response(status, content: Any = None, description: str = None, **kwargs):
     def inner(func):
-        operations[func].response(status, content, description, **kwargs)
+        operations[func].response(status, components.maybe_ref(content), description, **kwargs)
         return func
     return inner
 
