@@ -1,3 +1,4 @@
+from collections import defaultdict
 from sanic_openapi3.definitions import *
 
 
@@ -23,29 +24,31 @@ class OperationBuilder:
     def name(self, value: str):
         self.operationId = value
 
-    def describe(self, summary: str, description: str = None):
-        self.summary = summary
-        self.description = description
+    def describe(self, summary: str = None, description: str = None):
+        if summary:
+            self.summary = summary
+
+        if description:
+            self.description = description
 
     def document(self, url: str, description: str = None):
         self.externalDocs = ExternalDocumentation(url, description)
 
     def tag(self, *args: str):
-            for arg in args:
-                self.tags.append(arg)
+        for arg in args:
+            self.tags.append(arg)
 
     def deprecate(self):
         self.deprecated = True
 
     def body(self, content: Any, **kwargs):
-        self.requestBody = Factory.body(maybe_ref(content), **kwargs)
+        self.requestBody = RequestBody.make(content, **kwargs)
 
     def parameter(self, name: str, schema: Any, location: str = 'query', **kwargs):
-        param = Factory.parameter(name, maybe_ref(schema), location, **kwargs)
-        self.parameters.append(param)
+        self.parameters.append(Parameter.make(name, schema, location, **kwargs))
 
     def response(self, status, content: Any = None, description: str = None, **kwargs):
-        self.responses[status] = Factory.response(maybe_ref(content), description, **kwargs)
+        self.responses[status] = Response.make(content, description, **kwargs)
 
     def secured(self, *args, **kwargs):
         items = {**{v: [] for v in args}, **kwargs}
@@ -69,14 +72,14 @@ class SpecificationBuilder:
     _terms: str
     _contact: Contact
     _license: License
+    _paths: Dict[str, Dict[str, OperationBuilder]]
     _tags: Dict[str, Tag]
-    _paths: Dict[str, Dict[str, dict]]
     _schemas: Dict[str, Schema]
     _security: Dict[str, SecurityScheme]
 
     def __init__(self):
+        self._paths = defaultdict(dict)
         self._tags = {}
-        self._paths = {}
         self._schemas = {}
         self._security = {}
 
@@ -104,7 +107,7 @@ class SpecificationBuilder:
     def license(self, name: str = None, url: str = None ):
         self._license = License(name, url=url)
 
-    def component(self, section, name: str, value: Schema):
+    def component(self, section: str, name: str, value: Schema):
         if section == 'schemas':
             self._schemas[name] = value
         elif section == 'security' and isinstance(value, SecurityScheme):
@@ -112,15 +115,17 @@ class SpecificationBuilder:
 
     def operation(self, path: str, method: str, operation: OperationBuilder):
         for _tag in operation.tags:
-            if _tag not in self._tags:
-                self._tags[_tag] = Tag(_tag)
+            if _tag in self._tags.keys():
+                continue
 
-        self._paths[path][method] = operation
+            self._tags[_tag] = Tag(_tag)
+
+        self._paths[path][method.lower()] = operation
 
     def build(self) -> OpenAPI:
         info = self._build_info()
-        tags = self._build_tags()
         paths = self._build_paths()
+        tags = self._build_tags()
         components = self._build_components()
 
         return OpenAPI(info, paths, tags=tags, components=components)
@@ -138,10 +143,10 @@ class SpecificationBuilder:
     def _build_tags(self):
         return self._tags.values()
 
-    def _build_paths(self):
+    def _build_paths(self) -> Dict:
         paths = {}
 
-        for path, operations in self._paths:
+        for path, operations in self._paths.items():
             paths[path] = PathItem(**{k: v.build() for k, v in operations.items()})
 
         return paths

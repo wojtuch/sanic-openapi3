@@ -1,23 +1,21 @@
-from datetime import date
-from sanic_openapi3 import openapi
+from sanic_openapi3 import components
 
 
-@openapi.security('apiKey')
+@components.security('apiKey')
 class TodoApiKey:
     name = 'x-api-key'
     location = 'header'
 
 
-@openapi.scheme
+@components.scheme()
 class Todo:
     id = int
     done = bool
     text = str
     title = str
-    deadline = date
 
 
-@openapi.scheme
+@components.scheme()
 class TodoList:
     limit = int
     items = [Todo]

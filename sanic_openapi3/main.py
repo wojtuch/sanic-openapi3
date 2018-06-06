@@ -1,13 +1,22 @@
+import re
+from collections import defaultdict
+from itertools import repeat
 from sanic.blueprints import Blueprint
 from sanic.response import json
-from sanic_openapi3.openapi import specification, operations
+from sanic.views import CompositionView
 
+from sanic_openapi3.builders import OperationBuilder, SpecificationBuilder
 
 blueprint = Blueprint('openapi3')
+operations = defaultdict(OperationBuilder)
+specification = SpecificationBuilder()
 
 
 @blueprint.listener('before_server_start')
 def build_spec(app, loop):
+    # --------------------------------------------------------------- #
+    # Globals
+    # --------------------------------------------------------------- #
     specification.describe(
         getattr(app.config, 'OPENAPI_TITLE', 'API'),
         getattr(app.config, 'OPENAPI_VERSION', '1.0.0'),
@@ -26,15 +35,6 @@ def build_spec(app, loop):
         getattr(app.config, 'OPENAPI_CONTACT_EMAIL', None)
     )
 
-    openapi = specification.build(app).serialize()
-
-    def spec_json(request):
-        return json(openapi)
-
-    app.add_route(spec_json, uri=getattr(app.config, 'OPENAPI_URL', 'openapi.json'), strict_slashes=True)
-
-
-def build_paths(app):
     # --------------------------------------------------------------- #
     # Blueprints
     # --------------------------------------------------------------- #
@@ -43,13 +43,13 @@ def build_paths(app):
             continue
 
         for _route in _blueprint.routes:
-            if _route.handler not in self.operations:
+            if _route.handler not in operations:
                 continue
 
-            _operation = self.operations.get(_route.handler)
+            operation = operations.get(_route.handler)
 
-            if not _operation.tags:
-                _operation.tags.append(_blueprint.name)
+            if not operation.tags:
+                operation.tag(_blueprint.name)
 
     # --------------------------------------------------------------- #
     # Operations
@@ -71,16 +71,23 @@ def build_paths(app):
         for segment in _route.parameters:
             uri = re.sub('<' + segment.name + '.*?>', '{' + segment.name + '}', uri)
 
-        for _method, _handler in method_handlers:
-            if _handler not in self.operations:
+        for method, _handler in method_handlers:
+            if _handler not in operations:
                 continue
 
-            _operation = self.operations[_handler]
+            operation = operations[_handler]
 
-            if not hasattr(_operation, 'operationId'):
-                _operation.operationId = '%s_%s' % (_method.lower(), _route.name)
+            if not hasattr(operation, 'operationId'):
+                operation.operationId = '%s_%s' % (method.lower(), _route.name)
 
             for _parameter in _route.parameters:
-                _operation.parameters.append(Factory.parameter(_parameter.name, _parameter.cast, 'path'))
+                operation.parameter(_parameter.name, _parameter.cast, 'path')
 
-            paths[uri][_method] = _operation.__dict__
+            specification.operation(uri, method, operation)
+
+    openapi = specification.build().serialize()
+
+    def spec_json(request):
+        return json(openapi)
+
+    app.add_route(spec_json, uri=getattr(app.config, 'OPENAPI_URL', 'openapi.json'), strict_slashes=True)
