@@ -1,4 +1,4 @@
-from .main import blueprint
+from .main import blueprint, openapi
 
 __all__ = ['blueprint']
 

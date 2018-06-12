@@ -1,13 +1,13 @@
-from sanic_openapi3 import components
+from sanic_openapi3 import openapi
 
 
-@components.security('apiKey')
+@openapi.security('apiKey')
 class TodoApiKey:
     name = 'x-api-key'
     location = 'header'
 
 
-@components.scheme()
+@openapi.scheme()
 class Todo:
     id = int
     done = bool
@@ -15,7 +15,7 @@ class Todo:
     title = str
 
 
-@components.scheme()
+@openapi.scheme()
 class TodoList:
     limit = int
     items = [Todo]

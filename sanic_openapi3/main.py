@@ -1,16 +1,13 @@
 import re
-from collections import defaultdict
+
 from itertools import repeat
 from sanic.blueprints import Blueprint
 from sanic.response import json
 from sanic.views import CompositionView
 
-from sanic_openapi3.builders import ComponentsBuilder, OperationsBuilder, SpecificationBuilder
+from sanic_openapi3.openapi import _specification, _operations
 
 blueprint = Blueprint('openapi3')
-components = ComponentsBuilder()
-operations = OperationsBuilder()
-specification = SpecificationBuilder(components)
 
 
 @blueprint.listener('before_server_start')
@@ -18,19 +15,19 @@ def build_spec(app, loop):
     # --------------------------------------------------------------- #
     # Globals
     # --------------------------------------------------------------- #
-    specification.describe(
+    _specification.describe(
         getattr(app.config, 'OPENAPI_TITLE', 'API'),
         getattr(app.config, 'OPENAPI_VERSION', '1.0.0'),
         getattr(app.config, 'OPENAPI_DESCRIPTION', None),
         getattr(app.config, 'OPENAPI_TERMS_OF_SERVICE', None)
     )
 
-    specification.license(
+    _specification.license(
         getattr(app.config, 'OPENAPI_LICENSE_NAME', None),
         getattr(app.config, 'OPENAPI_LICENSE_URL', None)
     )
 
-    specification.contact(
+    _specification.contact(
         getattr(app.config, 'OPENAPI_CONTACT_NAME', None),
         getattr(app.config, 'OPENAPI_CONTACT_URL', None),
         getattr(app.config, 'OPENAPI_CONTACT_EMAIL', None)
@@ -44,10 +41,10 @@ def build_spec(app, loop):
             continue
 
         for _route in _blueprint.routes:
-            if _route.handler not in operations:
+            if _route.handler not in _operations:
                 continue
 
-            operation = operations.get(_route.handler)
+            operation = _operations.get(_route.handler)
 
             if not operation.tags:
                 operation.tag(_blueprint.name)
@@ -73,20 +70,17 @@ def build_spec(app, loop):
             uri = re.sub('<' + segment.name + '.*?>', '{' + segment.name + '}', uri)
 
         for method, _handler in method_handlers:
-            if _handler not in operations:
+            if _handler not in _operations:
                 continue
 
-            operation = operations[_handler]
-
-            if not hasattr(operation, 'operationId'):
-                operation.operationId = '%s_%s' % (method.lower(), _route.name)
+            operation = _operations[_handler]
 
             for _parameter in _route.parameters:
                 operation.parameter(_parameter.name, _parameter.cast, 'path')
 
-            specification.operation(uri, method, operation)
+            _specification.operation(uri, method, operation)
 
-    openapi = specification.build().serialize()
+    openapi = _specification.build().serialize()
 
     def spec_json(request):
         return json(openapi)

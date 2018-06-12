@@ -1,6 +1,6 @@
 from sanic import Sanic, Blueprint
 from sanic.response import json
-from sanic_openapi3 import openapi, blueprint
+from sanic_openapi3 import blueprint
 from examples.todos.data import *
 
 
