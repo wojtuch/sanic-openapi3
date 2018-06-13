@@ -18,7 +18,15 @@ pip install sanic-openapi3
 ### Import blueprint and use simple decorators to document routes:
 
 ```python
-from sanic_openapi3 import openapi, openapi_blueprint
+from sanic import Sanic
+from sanic_openapi3 import openapi
+
+app = Sanic()
+
+openapi.describe('Car API', '1.0.1', description='Advanced Todo API for own purposes')
+openapi.contact('John Doe', 'https://example.com', 'info@example.com')
+openapi.license('MIT')
+
 
 @app.get("/user/<user_id:int>")
 @openapi.summary("Fetches a user by ID")
@@ -26,13 +34,15 @@ from sanic_openapi3 import openapi, openapi_blueprint
 async def get_user(request, user_id):
     ...
 
+
 @app.post("/user")
 @openapi.summary("Creates a user")
 @openapi.body({"user": { "name": str }})
 async def create_user(request):
     ...
 
-app.blueprint(openapi_blueprint)
+
+app.blueprint(openapi.blueprint)
 ```
 
 You'll now have a specification at the URL `/openapi.json`.
@@ -41,14 +51,22 @@ Your routes will be automatically categorized by their blueprints.
 ### Model your input/output
 
 ```python
+...
+
+from sanic_openapi3 import openapi
+from sanic.response import json
+
+
 class Car:
     make = str
     model = str
     year = int
 
+
 class Garage:
     spaces = int
     cars = [Car]
+
 
 @app.get("/garage")
 @openapi.summary("Gets the whole garage")
@@ -64,23 +82,17 @@ async def get_garage(request):
 ### Get more descriptive
 
 ```python
+from openapitools.types import *
+
+
 class Car:
-    make = doc.String("Who made the car")
-    model = doc.String("Type of car.  This will vary by make")
-    year = doc.Integer("4-digit year of the car", required=False)
+    make = String(description="Who made the car")
+    model = String(description="Type of car.  This will vary by make")
+    year = Integer(description="4-digit year of the car", required=False)
+
 
 class Garage:
-    spaces = doc.Integer("How many cars can fit in the garage")
-    cars = doc.List(Car, description="All cars in the garage")
+    spaces = Integer(description="How many cars can fit in the garage")
+    cars = Array(Car, description="All cars in the garage")
 ```
 
-### Configure all the things
-
-```python
-app.config.OPENAPI_VERSION = '1.0.0'
-app.config.OPENAPI_TITLE = 'Car API'
-app.config.OPENAPI_DESCRIPTION = 'Car API'
-app.config.OPENAPI_TERMS_OF_SERVICE = 'https://example.com/terms'
-app.config.OPENAPI_CONTACT_EMAIL = 'mail@example.com'
-app.config.OPENAPI_CONTACT_NAME = 'mail@example.com'
-```

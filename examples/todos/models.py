@@ -1,4 +1,5 @@
 from sanic_openapi3 import openapi
+from openapitools.types import *
 
 
 @openapi.security('apiKey')
@@ -18,4 +19,4 @@ class Todo:
 @openapi.scheme()
 class TodoList:
     limit = int
-    items = [Todo]
+    items = Array(Todo, description="List of Todo objects")

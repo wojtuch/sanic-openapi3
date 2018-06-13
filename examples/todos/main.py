@@ -8,9 +8,6 @@ from examples.todos.data import test_list, test_todo
 app = Sanic()
 todos = Blueprint('todo', 'todo')
 
-app.blueprint(todos)
-app.blueprint(openapi.blueprint)
-
 
 @todos.get("/", strict_slashes=True)
 @openapi.summary("Fetches all todos")
@@ -48,5 +45,8 @@ def todo_delete(request, todo_id):
 openapi.describe('Todo API', '0.0.1', description='Advanced Todo API for own purposes')
 openapi.contact('John Doe', 'https://example.com', 'info@example.com')
 openapi.license('MIT')
+
+app.blueprint(todos)
+app.blueprint(openapi.blueprint)
 
 app.run(host="0.0.0.0", debug=True)
